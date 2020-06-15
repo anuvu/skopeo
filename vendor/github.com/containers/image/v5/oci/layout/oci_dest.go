@@ -11,6 +11,7 @@ import (
 
 	"github.com/containers/image/v5/manifest"
 	"github.com/containers/image/v5/types"
+	ociencspec "github.com/containers/ocicrypt/spec"
 	digest "github.com/opencontainers/go-digest"
 	imgspec "github.com/opencontainers/image-spec/specs-go"
 	imgspecv1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -88,7 +89,25 @@ func (d *ociImageDestination) DesiredLayerCompression() types.LayerCompression {
 	if d.acceptUncompressedLayers {
 		return types.PreserveOriginal
 	}
+
 	return types.Compress
+}
+
+func (d *ociImageDestination) DesiredBlobCompression(info types.BlobInfo) types.LayerCompression {
+	if d.acceptUncompressedLayers {
+		return types.PreserveOriginal
+	}
+
+	if manifest.SupportedSchema2MediaType(info.MediaType) == nil {
+		return types.Compress
+	}
+
+	switch info.MediaType {
+	case imgspecv1.MediaTypeImageLayer, imgspecv1.MediaTypeImageLayerGzip, imgspecv1.MediaTypeImageLayerNonDistributable, imgspecv1.MediaTypeImageLayerNonDistributableGzip, imgspecv1.MediaTypeImageLayerNonDistributableZstd, imgspecv1.MediaTypeImageLayerZstd, ociencspec.MediaTypeLayerEnc, ociencspec.MediaTypeLayerGzipEnc:
+		return types.Compress
+	}
+
+	return types.PreserveOriginal
 }
 
 // AcceptsForeignLayerURLs returns false iff foreign layers in manifest should be actually
@@ -279,7 +298,7 @@ func (d *ociImageDestination) addManifest(desc *imgspecv1.Descriptor) {
 	// If it has the same digest as another entry in the index, we already overwrote the file,
 	// so just pick up the other information.
 	for i, manifest := range d.index.Manifests {
-		if manifest.Digest == desc.Digest {
+		if manifest.Digest == desc.Digest && manifest.Annotations[imgspecv1.AnnotationRefName] == "" {
 			// Replace it completely.
 			d.index.Manifests[i] = *desc
 			return
